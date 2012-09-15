@@ -5,6 +5,9 @@
 #include "local_supervisor.h"
 #include "TCPLineServer.h"
 #include <string>
+#include <map>
+#include "ProcessConfigFile.h"
+#include "TokenizeLine.h"
 
 #define MAX_LOADSTRING 100
 
@@ -26,6 +29,11 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 {
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
+
+	ProcessConfigFile configFile("processes.cfg");
+	std::map<unsigned int, Process_Type> processMap;
+
+	configFile.ReadProcesses(&processMap);
 
  	// TODO: Place code here.
 	MSG msg;
@@ -93,7 +101,23 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 
 		while(server.HasData()) {
 			std::string message = server.Get();
-			MessageBox(NULL, message.c_str(), TEXT("Data received!"), MB_OK);
+			std::vector<std::string> tokens = TokenizeLine(message, ';');
+			if(tokens[0] == "start") {
+				unsigned int id = atoi(tokens[1].c_str());
+				STARTUPINFO siStartupInfo;
+				PROCESS_INFORMATION piProcessInfo;
+				memset(&siStartupInfo, 0, sizeof(siStartupInfo));
+				memset(&piProcessInfo, 0, sizeof(piProcessInfo));
+				siStartupInfo.cb = sizeof(siStartupInfo);
+
+				/* MSDN: The Unicode version of CreateProcess can modify the contents of lpCommandLine.
+				 * Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a
+				 * literal string). If this parameter is a constant string, the function may cause an access violation.
+				 */
+				char* commandLine = new char[processMap[id].commandLine.length()+1];
+				strncpy(commandLine, processMap[id].commandLine.c_str(), processMap[id].commandLine.length()+1);
+				CreateProcess(NULL, commandLine, NULL, NULL, FALSE, NULL, NULL, processMap[id].currentDir.c_str(), &siStartupInfo, &piProcessInfo);
+			}
 		}
 
 		while (PeekMessage (&msg, NULL, 0, 0, PM_REMOVE) > 0)
