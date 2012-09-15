@@ -228,3 +228,10 @@ std::string TCPLineServer::Get() {
 void TCPLineServer::AddToSendQueue(std::string message) {
 	sendQueue.push(message);
 }
+
+bool TCPLineServer::ClientConnected() {
+	if(state == CLIENT_CONNECTED)
+		return true;
+	else
+		return false;
+}

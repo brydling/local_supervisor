@@ -12,6 +12,7 @@ public:
 	bool HasData();
 	std::string Get();
 	void AddToSendQueue(std::string message);
+	bool ClientConnected();
 
 private:
 	int CreateSocket();

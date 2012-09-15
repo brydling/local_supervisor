@@ -9,20 +9,23 @@
 #include "ProcessConfigFile.h"
 #include "TokenizeLine.h"
 #include <Psapi.h>
+#include <cctype>
 
 #define MAX_LOADSTRING 100
 
 class RunningProcessInfo {
 public:
 	RunningProcessInfo() {
-		memset(&siStartupInfo, 0, sizeof(siStartupInfo));
-		memset(&piProcessInfo, 0, sizeof(piProcessInfo));
-		siStartupInfo.cb = sizeof(siStartupInfo);
+		//memset(&siStartupInfo, 0, sizeof(siStartupInfo));
+		//memset(&piProcessInfo, 0, sizeof(piProcessInfo));
+		//siStartupInfo.cb = sizeof(siStartupInfo);
 	}
 
 	unsigned int id;
-	STARTUPINFO siStartupInfo;
-    PROCESS_INFORMATION piProcessInfo;
+	//STARTUPINFO siStartupInfo;
+    //PROCESS_INFORMATION piProcessInfo;
+	HANDLE hProcess;
+	DWORD dwProcessId;
 };
 
 // Global Variables:
@@ -47,6 +50,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	ProcessConfigFile configFile("processes.cfg");
 	std::map<unsigned int, ProcessConfigFile::Process_Type> availableProcesses;
 	std::map<unsigned int, RunningProcessInfo> runningProcesses;
+	bool clientConnected = false;
 
 
 	configFile.ReadProcesses(&availableProcesses);
@@ -64,12 +68,32 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	DWORD processes = bytesreturned/sizeof(DWORD);
 
 	for(int i=0; i<processes; i++) {
-		HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pids[i]);
-		char filePath[1024];
-		unsigned int length = GetModuleFileNameEx(hProcess, 0, filePath, 1024);
-		filePath[length] = 0;
-		MessageBoxA(0, filePath, "Process", MB_OK);
-		CloseHandle(hProcess);
+		bool addedProcessToRunningList = false;
+		HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS /*PROCESS_QUERY_INFORMATION*/, 0, pids[i]);
+		char filePath[512];
+		DWORD size = sizeof(filePath);
+		if(QueryFullProcessImageName(hProcess, 0, filePath, &size) != 0) {
+			for(int j=0; j<size; j++) {
+				filePath[j] = tolower(filePath[j]);
+			}
+			std::string sFilePath = filePath;
+
+			std::map<unsigned int, ProcessConfigFile::Process_Type>::iterator it;
+			for(it=availableProcesses.begin(); it != availableProcesses.end(); it++) {
+				if(it->second.commandLine == sFilePath) {
+					RunningProcessInfo runningProcessInfo;
+					runningProcessInfo.id = it->first;
+					runningProcessInfo.dwProcessId = pids[i];
+					runningProcessInfo.hProcess = hProcess;
+					runningProcesses.insert(std::pair<unsigned int, RunningProcessInfo>(runningProcessInfo.id, runningProcessInfo));
+					addedProcessToRunningList = true;
+					break;
+				}
+			}
+		}
+		if(!addedProcessToRunningList) {
+			CloseHandle(hProcess);
+		}
 	}
 
 	// Initialize global strings
@@ -110,6 +134,20 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			}
 		}
 
+		if(clientConnected == false && server.ClientConnected() == true) {
+			std::map<unsigned int, RunningProcessInfo>::iterator it;
+			for(it=runningProcesses.begin() ; it != runningProcesses.end(); it++) {
+				unsigned int id = it->first;
+				std::stringstream stringStream;
+				stringStream << "running;" << id << ";";
+				server.AddToSendQueue(stringStream.str());
+			}
+
+			clientConnected = true;
+		} else if(clientConnected == true && server.ClientConnected() == false) {
+			clientConnected = false;
+		}
+
 		std::vector<unsigned int> process_ids_to_erase;
 		std::map<unsigned int, RunningProcessInfo>::iterator it;
 		for(it=runningProcesses.begin() ; it != runningProcesses.end(); it++) {
@@ -117,14 +155,17 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			unsigned int id = it->first;
 
 			DWORD exitCode;
-			GetExitCodeProcess(runningProcess.piProcessInfo.hProcess, &exitCode);
+			DWORD success = GetExitCodeProcess(runningProcess.hProcess, &exitCode);
+			DWORD error = GetLastError();
 
 			if(exitCode != STILL_ACTIVE) {
-				std::stringstream stringStream;
-				stringStream << "stopped;" << id << ";";
-				server.AddToSendQueue(stringStream.str());
+				if(server.ClientConnected()) {
+					std::stringstream stringStream;
+					stringStream << "stopped;" << id << ";";
+					server.AddToSendQueue(stringStream.str());
+				}
 
-				CloseHandle(runningProcess.piProcessInfo.hProcess);
+				CloseHandle(runningProcess.hProcess);
 				process_ids_to_erase.push_back(id);
 			}
 		}
@@ -147,15 +188,23 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 					* Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a
 					* literal string). If this parameter is a constant string, the function may cause an access violation.
 					*/
+					STARTUPINFO siStartupInfo;
+					memset(&siStartupInfo, 0, sizeof(siStartupInfo));
+					siStartupInfo.cb = sizeof(siStartupInfo);
+					PROCESS_INFORMATION piProcessInfo;
+					memset(&piProcessInfo, 0, sizeof(piProcessInfo));
 					char* commandLine = new char[availableProcesses[id].commandLine.length()+1];
 					strncpy(commandLine, availableProcesses[id].commandLine.c_str(), availableProcesses[id].commandLine.length()+1);
-					CreateProcess(NULL, commandLine, NULL, NULL, FALSE, NULL, NULL, availableProcesses[id].currentDir.c_str(), &runningProcessInfo.siStartupInfo, &runningProcessInfo.piProcessInfo);
+					CreateProcess(NULL, commandLine, NULL, NULL, FALSE, NULL, NULL, availableProcesses[id].currentDir.c_str(), &siStartupInfo, &piProcessInfo);
+					runningProcessInfo.dwProcessId = piProcessInfo.dwProcessId;
+					runningProcessInfo.hProcess = piProcessInfo.hProcess;
+					CloseHandle(piProcessInfo.hThread);
 
 					runningProcesses.insert(std::pair<unsigned int, RunningProcessInfo>(id, runningProcessInfo));
 				}
 			} else if(tokens[0] == "stop") {
 				unsigned int id = atoi(tokens[1].c_str());
-				HANDLE hProcess = runningProcesses[id].piProcessInfo.hProcess;
+				HANDLE hProcess = runningProcesses[id].hProcess;
 				TerminateProcess(hProcess, 1);
 				CloseHandle(hProcess);
 				runningProcesses.erase(id);

@@ -21,7 +21,13 @@ bool ProcessConfigFile::ReadProcesses(std::map<unsigned int, Process_Type> *proc
 					Process_Type process;
 					process.id = atoi(tokens[0].c_str());
 					process.currentDir = tokens[1];
+					for(int i=0; i<process.currentDir.length(); i++) {
+						process.currentDir[i] = tolower(process.currentDir[i]);
+					}
 					process.commandLine = tokens[2];
+					for(int i=0; i<process.commandLine.length(); i++) {
+						process.commandLine[i] = tolower(process.commandLine[i]);
+					}
 					processMap->insert(std::pair<unsigned int, Process_Type>(process.id, process));
 				}
 			}
