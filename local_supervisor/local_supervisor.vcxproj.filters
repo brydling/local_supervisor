@@ -39,9 +39,6 @@
     <ClInclude Include="TCPLineServer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="process_type.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="ProcessConfigFile.h">
       <Filter>Header Files</Filter>
     </ClInclude>

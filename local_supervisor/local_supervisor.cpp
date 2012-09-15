@@ -1,15 +1,29 @@
 // local_supervisor.cpp : Defines the entry point for the application.
 //
-
 #include "stdafx.h"
 #include "local_supervisor.h"
 #include "TCPLineServer.h"
 #include <string>
+#include <sstream>
 #include <map>
 #include "ProcessConfigFile.h"
 #include "TokenizeLine.h"
+#include <Psapi.h>
 
 #define MAX_LOADSTRING 100
+
+class RunningProcessInfo {
+public:
+	RunningProcessInfo() {
+		memset(&siStartupInfo, 0, sizeof(siStartupInfo));
+		memset(&piProcessInfo, 0, sizeof(piProcessInfo));
+		siStartupInfo.cb = sizeof(siStartupInfo);
+	}
+
+	unsigned int id;
+	STARTUPINFO siStartupInfo;
+    PROCESS_INFORMATION piProcessInfo;
+};
 
 // Global Variables:
 HINSTANCE hInst;								// current instance
@@ -31,15 +45,32 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
 	ProcessConfigFile configFile("processes.cfg");
-	std::map<unsigned int, Process_Type> processMap;
+	std::map<unsigned int, ProcessConfigFile::Process_Type> availableProcesses;
+	std::map<unsigned int, RunningProcessInfo> runningProcesses;
 
-	configFile.ReadProcesses(&processMap);
+
+	configFile.ReadProcesses(&availableProcesses);
 
  	// TODO: Place code here.
 	MSG msg;
 	HACCEL hAccelTable;
 
 	ZeroMemory(&msg, sizeof(msg));
+
+	DWORD pids[256];
+	DWORD bytesreturned;
+
+	EnumProcesses(pids, sizeof(pids), &bytesreturned);
+	DWORD processes = bytesreturned/sizeof(DWORD);
+
+	for(int i=0; i<processes; i++) {
+		HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pids[i]);
+		char filePath[1024];
+		unsigned int length = GetModuleFileNameEx(hProcess, 0, filePath, 1024);
+		filePath[length] = 0;
+		MessageBoxA(0, filePath, "Process", MB_OK);
+		CloseHandle(hProcess);
+	}
 
 	// Initialize global strings
 	LoadString(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -53,17 +84,6 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	}
 
 	hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_LOCAL_SUPERVISOR));
-	
-	/*STARTUPINFO siStartupInfo; 
-    PROCESS_INFORMATION piProcessInfo; 
-    memset(&siStartupInfo, 0, sizeof(siStartupInfo)); 
-    memset(&piProcessInfo, 0, sizeof(piProcessInfo)); 
-    siStartupInfo.cb = sizeof(siStartupInfo);
-
-	LPTSTR lpCurrentDirectory = TEXT("C:\\Users\\Niclas\\Documents\\elektronik");
-	LPTSTR lpCommandLine = TEXT("\"C:\\Users\\Niclas\\Documents\\elektronik\\setup_hid_viewer.exe\"");
-
-	CreateProcess(NULL, lpCommandLine, NULL, NULL, FALSE, NULL, NULL, lpCurrentDirectory, &siStartupInfo, &piProcessInfo);*/
 
 	WSADATA WsaDat;
 	if(WSAStartup(MAKEWORD(2,2),&WsaDat)!=0)
@@ -78,15 +98,6 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	// Main message loop:
 	do
 	{
-		/*DWORD exitCode;
-
-		//GetExitCodeProcess(piProcessInfo.hProcess, &exitCode);
-
-		if(exitCode != STILL_ACTIVE) {
-			MessageBoxA(NULL, "Died!", "Died", MB_OK);
-			break;
-		}*/
-
 		int error;
 
 		if((error = server.Update()) != 0) {
@@ -99,24 +110,55 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			}
 		}
 
+		std::vector<unsigned int> process_ids_to_erase;
+		std::map<unsigned int, RunningProcessInfo>::iterator it;
+		for(it=runningProcesses.begin() ; it != runningProcesses.end(); it++) {
+			RunningProcessInfo runningProcess = it->second;
+			unsigned int id = it->first;
+
+			DWORD exitCode;
+			GetExitCodeProcess(runningProcess.piProcessInfo.hProcess, &exitCode);
+
+			if(exitCode != STILL_ACTIVE) {
+				std::stringstream stringStream;
+				stringStream << "stopped;" << id << ";";
+				server.AddToSendQueue(stringStream.str());
+
+				CloseHandle(runningProcess.piProcessInfo.hProcess);
+				process_ids_to_erase.push_back(id);
+			}
+		}
+
+		std::vector<unsigned int>::iterator vect_it;
+		for(vect_it=process_ids_to_erase.begin(); vect_it != process_ids_to_erase.end(); vect_it++) {
+			runningProcesses.erase(*vect_it);
+		}
+
 		while(server.HasData()) {
 			std::string message = server.Get();
 			std::vector<std::string> tokens = TokenizeLine(message, ';');
 			if(tokens[0] == "start") {
 				unsigned int id = atoi(tokens[1].c_str());
-				STARTUPINFO siStartupInfo;
-				PROCESS_INFORMATION piProcessInfo;
-				memset(&siStartupInfo, 0, sizeof(siStartupInfo));
-				memset(&piProcessInfo, 0, sizeof(piProcessInfo));
-				siStartupInfo.cb = sizeof(siStartupInfo);
+				if(runningProcesses.find(id) == runningProcesses.end()) {
+					RunningProcessInfo runningProcessInfo;
+					runningProcessInfo.id = id;
 
-				/* MSDN: The Unicode version of CreateProcess can modify the contents of lpCommandLine.
-				 * Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a
-				 * literal string). If this parameter is a constant string, the function may cause an access violation.
-				 */
-				char* commandLine = new char[processMap[id].commandLine.length()+1];
-				strncpy(commandLine, processMap[id].commandLine.c_str(), processMap[id].commandLine.length()+1);
-				CreateProcess(NULL, commandLine, NULL, NULL, FALSE, NULL, NULL, processMap[id].currentDir.c_str(), &siStartupInfo, &piProcessInfo);
+					/* MSDN: The Unicode version of CreateProcess can modify the contents of lpCommandLine.
+					* Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a
+					* literal string). If this parameter is a constant string, the function may cause an access violation.
+					*/
+					char* commandLine = new char[availableProcesses[id].commandLine.length()+1];
+					strncpy(commandLine, availableProcesses[id].commandLine.c_str(), availableProcesses[id].commandLine.length()+1);
+					CreateProcess(NULL, commandLine, NULL, NULL, FALSE, NULL, NULL, availableProcesses[id].currentDir.c_str(), &runningProcessInfo.siStartupInfo, &runningProcessInfo.piProcessInfo);
+
+					runningProcesses.insert(std::pair<unsigned int, RunningProcessInfo>(id, runningProcessInfo));
+				}
+			} else if(tokens[0] == "stop") {
+				unsigned int id = atoi(tokens[1].c_str());
+				HANDLE hProcess = runningProcesses[id].piProcessInfo.hProcess;
+				TerminateProcess(hProcess, 1);
+				CloseHandle(hProcess);
+				runningProcesses.erase(id);
 			}
 		}
 
