@@ -80,18 +80,23 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="local_supervisor.h" />
+    <ClInclude Include="ProcessConfigFile.h" />
+    <ClInclude Include="Process_Type.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="TCPLineServer.h" />
+    <ClInclude Include="TokenizeLine.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="local_supervisor.cpp" />
+    <ClCompile Include="ProcessConfigFile.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="TCPLineServer.cpp" />
+    <ClCompile Include="TokenizeLine.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="local_supervisor.rc" />
