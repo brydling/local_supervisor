@@ -75,6 +75,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <None Include="local_supervisor.ico" />
+    <None Include="processes.cfg" />
     <None Include="ReadMe.txt" />
     <None Include="small.ico" />
   </ItemGroup>
