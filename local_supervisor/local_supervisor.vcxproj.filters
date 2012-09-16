@@ -45,6 +45,15 @@
     <ClInclude Include="TokenizeLine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="global.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AddProcessesNotStartedBySupervisor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProcessFunctions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -60,6 +69,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="tokenizeline.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="AddProcessesNotStartedBySupervisor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProcessFunctions.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

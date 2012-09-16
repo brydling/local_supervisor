@@ -1,37 +1,25 @@
 // local_supervisor.cpp : Defines the entry point for the application.
 //
 #include "stdafx.h"
+#include "global.h"
 #include "local_supervisor.h"
-#include "TCPLineServer.h"
 #include <string>
 #include <sstream>
-#include <map>
-#include "ProcessConfigFile.h"
 #include "TokenizeLine.h"
-#include <Psapi.h>
 #include <cctype>
+#include "AddProcessesNotStartedBySupervisor.h"
+#include "ProcessFunctions.h"
 
 #define MAX_LOADSTRING 100
-
-class RunningProcessInfo {
-public:
-	RunningProcessInfo() {
-		//memset(&siStartupInfo, 0, sizeof(siStartupInfo));
-		//memset(&piProcessInfo, 0, sizeof(piProcessInfo));
-		//siStartupInfo.cb = sizeof(siStartupInfo);
-	}
-
-	unsigned int id;
-	//STARTUPINFO siStartupInfo;
-    //PROCESS_INFORMATION piProcessInfo;
-	HANDLE hProcess;
-	DWORD dwProcessId;
-};
 
 // Global Variables:
 HINSTANCE hInst;								// current instance
 TCHAR szTitle[MAX_LOADSTRING];					// The title bar text
 TCHAR szWindowClass[MAX_LOADSTRING];			// the main window class name
+
+std::map<unsigned int, ProcessConfigFile::Process_Type> availableProcesses;
+std::map<unsigned int, RunningProcessInfo> runningProcesses;
+TCPLineServer server(5666);
 
 // Forward declarations of functions included in this code module:
 ATOM				MyRegisterClass(HINSTANCE hInstance);
@@ -48,53 +36,14 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
 	ProcessConfigFile configFile("processes.cfg");
-	std::map<unsigned int, ProcessConfigFile::Process_Type> availableProcesses;
-	std::map<unsigned int, RunningProcessInfo> runningProcesses;
 	bool clientConnected = false;
-
 
 	configFile.ReadProcesses(&availableProcesses);
 
- 	// TODO: Place code here.
 	MSG msg;
 	HACCEL hAccelTable;
 
 	ZeroMemory(&msg, sizeof(msg));
-
-	DWORD pids[256];
-	DWORD bytesreturned;
-
-	EnumProcesses(pids, sizeof(pids), &bytesreturned);
-	DWORD processes = bytesreturned/sizeof(DWORD);
-
-	for(int i=0; i<processes; i++) {
-		bool addedProcessToRunningList = false;
-		HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS /*PROCESS_QUERY_INFORMATION*/, 0, pids[i]);
-		char filePath[512];
-		DWORD size = sizeof(filePath);
-		if(QueryFullProcessImageName(hProcess, 0, filePath, &size) != 0) {
-			for(int j=0; j<size; j++) {
-				filePath[j] = tolower(filePath[j]);
-			}
-			std::string sFilePath = filePath;
-
-			std::map<unsigned int, ProcessConfigFile::Process_Type>::iterator it;
-			for(it=availableProcesses.begin(); it != availableProcesses.end(); it++) {
-				if(it->second.commandLine == sFilePath) {
-					RunningProcessInfo runningProcessInfo;
-					runningProcessInfo.id = it->first;
-					runningProcessInfo.dwProcessId = pids[i];
-					runningProcessInfo.hProcess = hProcess;
-					runningProcesses.insert(std::pair<unsigned int, RunningProcessInfo>(runningProcessInfo.id, runningProcessInfo));
-					addedProcessToRunningList = true;
-					break;
-				}
-			}
-		}
-		if(!addedProcessToRunningList) {
-			CloseHandle(hProcess);
-		}
-	}
 
 	// Initialize global strings
 	LoadString(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -117,11 +66,11 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 		exit(1);
 	}
 
-	TCPLineServer server(5666);
-
-	// Main message loop:
+	// Main loop:
 	do
 	{
+		AddProcessesNotStartedBySupervisor();
+
 		int error;
 
 		if((error = server.Update()) != 0) {
@@ -148,66 +97,21 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			clientConnected = false;
 		}
 
-		std::vector<unsigned int> process_ids_to_erase;
-		std::map<unsigned int, RunningProcessInfo>::iterator it;
-		for(it=runningProcesses.begin() ; it != runningProcesses.end(); it++) {
-			RunningProcessInfo runningProcess = it->second;
-			unsigned int id = it->first;
-
-			DWORD exitCode;
-			DWORD success = GetExitCodeProcess(runningProcess.hProcess, &exitCode);
-			DWORD error = GetLastError();
-
-			if(exitCode != STILL_ACTIVE) {
-				if(server.ClientConnected()) {
-					std::stringstream stringStream;
-					stringStream << "stopped;" << id << ";";
-					server.AddToSendQueue(stringStream.str());
-				}
-
-				CloseHandle(runningProcess.hProcess);
-				process_ids_to_erase.push_back(id);
-			}
-		}
-
-		std::vector<unsigned int>::iterator vect_it;
-		for(vect_it=process_ids_to_erase.begin(); vect_it != process_ids_to_erase.end(); vect_it++) {
-			runningProcesses.erase(*vect_it);
-		}
+		FindAndEraseStoppedProcesses();
 
 		while(server.HasData()) {
 			std::string message = server.Get();
 			std::vector<std::string> tokens = TokenizeLine(message, ';');
 			if(tokens[0] == "start") {
 				unsigned int id = atoi(tokens[1].c_str());
-				if(runningProcesses.find(id) == runningProcesses.end()) {
-					RunningProcessInfo runningProcessInfo;
-					runningProcessInfo.id = id;
-
-					/* MSDN: The Unicode version of CreateProcess can modify the contents of lpCommandLine.
-					* Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a
-					* literal string). If this parameter is a constant string, the function may cause an access violation.
-					*/
-					STARTUPINFO siStartupInfo;
-					memset(&siStartupInfo, 0, sizeof(siStartupInfo));
-					siStartupInfo.cb = sizeof(siStartupInfo);
-					PROCESS_INFORMATION piProcessInfo;
-					memset(&piProcessInfo, 0, sizeof(piProcessInfo));
-					char* commandLine = new char[availableProcesses[id].commandLine.length()+1];
-					strncpy(commandLine, availableProcesses[id].commandLine.c_str(), availableProcesses[id].commandLine.length()+1);
-					CreateProcess(NULL, commandLine, NULL, NULL, FALSE, NULL, NULL, availableProcesses[id].currentDir.c_str(), &siStartupInfo, &piProcessInfo);
-					runningProcessInfo.dwProcessId = piProcessInfo.dwProcessId;
-					runningProcessInfo.hProcess = piProcessInfo.hProcess;
-					CloseHandle(piProcessInfo.hThread);
-
-					runningProcesses.insert(std::pair<unsigned int, RunningProcessInfo>(id, runningProcessInfo));
+				if(runningProcesses.count(id) == 0) {	// if id is not in the list already
+					StartProcess(id);
 				}
 			} else if(tokens[0] == "stop") {
 				unsigned int id = atoi(tokens[1].c_str());
-				HANDLE hProcess = runningProcesses[id].hProcess;
-				TerminateProcess(hProcess, 1);
-				CloseHandle(hProcess);
-				runningProcesses.erase(id);
+				if(runningProcesses.count(id) != 0) {	// if id is in the list
+					StopProcess(id);
+				}
 			}
 		}
 

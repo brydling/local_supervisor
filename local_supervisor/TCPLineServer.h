@@ -7,7 +7,7 @@
 
 class TCPLineServer {
 public:
-	TCPLineServer(unsigned int port) { this->port = port; state = SOCKET_NOT_CREATED; }
+	TCPLineServer(unsigned int port);
 	int Update();
 	bool HasData();
 	std::string Get();

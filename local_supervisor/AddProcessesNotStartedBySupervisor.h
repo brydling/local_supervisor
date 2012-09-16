@@ -1,0 +1,6 @@
+#ifndef ADDPROCESSESNOTSTARTEDBYSUPERVISOR_H
+#define ADDPROCESSESNOTSTARTEDBYSUPERVISOR_H
+
+void AddProcessesNotStartedBySupervisor();
+
+#endif

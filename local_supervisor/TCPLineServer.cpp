@@ -1,6 +1,11 @@
 #include "stdafx.h"
 #include "TCPLineServer.h"
 
+TCPLineServer::TCPLineServer(unsigned int port) {
+	this->port = port;
+	state = SOCKET_NOT_CREATED;
+}
+
 int TCPLineServer::Update() {
 	switch(state) {
 	case SOCKET_NOT_CREATED:
