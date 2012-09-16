@@ -18,6 +18,7 @@ int TCPLineServer::Update() {
 
 	case CLIENT_CONNECTED:
 		SendAndReceive();
+		return 0;
 		break;
 	};
 }
@@ -46,6 +47,7 @@ int TCPLineServer::CreateSocket() {
 	}
 
 	state = WAITING_FOR_CLIENT;
+	return 0;
 }
 
 int TCPLineServer::Accept() {
@@ -73,6 +75,7 @@ int TCPLineServer::Accept() {
 		closesocket(serverSocket);
 
 		state = CLIENT_CONNECTED;
+		return 1; // connection made
 	}
 }
 
@@ -103,6 +106,7 @@ int TCPLineServer::Send() {
 		}
 		return 0;
 	}
+	return 0;
 }
 
 int TCPLineServer::Receive() {
