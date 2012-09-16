@@ -22,6 +22,9 @@
     <None Include="local_supervisor.ico">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="processes.cfg">
+      <Filter>Source Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
