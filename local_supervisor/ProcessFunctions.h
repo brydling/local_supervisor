@@ -5,6 +5,7 @@
 
 void StartProcess(DWORD id);
 void StopProcess(DWORD id);
+void KillProcess(DWORD id);
 void FindAndEraseStoppedProcesses();
 
 #endif

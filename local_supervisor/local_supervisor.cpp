@@ -112,6 +112,11 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 				if(runningProcesses.count(id) != 0) {	// if id is in the list
 					StopProcess(id);
 				}
+			} else if(tokens[0] == "kill") {
+				unsigned int id = atoi(tokens[1].c_str());
+				if(runningProcesses.count(id) != 0) {	// if id is in the list
+					KillProcess(id);
+				}
 			}
 		}
 

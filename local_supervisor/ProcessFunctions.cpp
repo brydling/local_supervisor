@@ -3,6 +3,9 @@
 #include "global.h"
 #include <sstream>
 
+// Declare Callback Enum Functions.
+BOOL CALLBACK CloseProcessEnum(HWND hwnd, LPARAM lParam);
+
 void StartProcess(DWORD id) {
 	RunningProcessInfo runningProcessInfo;
 	runningProcessInfo.id = id;
@@ -24,13 +27,57 @@ void StartProcess(DWORD id) {
 	CloseHandle(piProcessInfo.hThread);
 
 	runningProcesses.insert(std::pair<unsigned int, RunningProcessInfo>(id, runningProcessInfo));
+
+	DWORD exitCode;
+	DWORD success = GetExitCodeProcess(runningProcessInfo.hProcess, &exitCode);
+	DWORD error = GetLastError();
+
+	if(exitCode == STILL_ACTIVE) {
+		if(server.ClientConnected()) {
+			std::stringstream stringStream;
+			stringStream << "running;" << id << ";";
+			server.AddToSendQueue(stringStream.str());
+		}
+	}
 }
 
 void StopProcess(DWORD id) {
-	HANDLE hProcess = runningProcesses[id].hProcess;
-	TerminateProcess(hProcess, 1);
-	CloseHandle(hProcess);
-	runningProcesses.erase(id);
+	HANDLE hProc = runningProcesses[id].hProcess;
+	DWORD dwPID = runningProcesses[id].dwProcessId;
+	DWORD dwTimeout = 1000;
+	DWORD dwRet;
+
+	// TerminateAppEnum() posts WM_CLOSE to all windows whose PID
+	// matches your process's.
+	EnumWindows((WNDENUMPROC)CloseProcessEnum, (LPARAM) dwPID);
+}
+
+void KillProcess(DWORD id) {
+	HANDLE hProc = runningProcesses[id].hProcess;
+	DWORD dwPID = runningProcesses[id].dwProcessId;
+	DWORD dwTimeout = 1000;
+	DWORD dwRet;
+
+	// TerminateAppEnum() posts WM_CLOSE to all windows whose PID
+	// matches your process's.
+	EnumWindows((WNDENUMPROC)CloseProcessEnum, (LPARAM) dwPID);
+
+	// Wait on the handle. If it signals, great. If it times out,
+	// then you kill it.
+	if(WaitForSingleObject(hProc, dwTimeout) != WAIT_OBJECT_0)
+		TerminateProcess(hProc,0);
+}
+
+BOOL CALLBACK CloseProcessEnum(HWND hwnd, LPARAM lParam) {
+	DWORD dwID;
+
+	GetWindowThreadProcessId(hwnd, &dwID);
+
+	if(dwID == (DWORD)lParam) {
+		PostMessage(hwnd, WM_CLOSE, 0, 0);
+	}
+
+	return TRUE;
 }
 
 void FindAndEraseStoppedProcesses() {
