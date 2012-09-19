@@ -84,12 +84,25 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 		}
 
 		if(clientConnected == false && server.ClientConnected() == true) {
-			std::map<unsigned int, RunningProcessInfo>::iterator it;
-			for(it=runningProcesses.begin() ; it != runningProcesses.end(); it++) {
-				unsigned int id = it->first;
-				std::stringstream stringStream;
-				stringStream << "running;" << id << ";";
-				server.AddToSendQueue(stringStream.str());
+			std::map<unsigned int, RunningProcessInfo>::iterator itRunningProcesses;
+			std::map<unsigned int, ProcessConfigFile::Process_Type>::iterator itAvailableProcesses;
+			for(itAvailableProcesses=availableProcesses.begin(); itAvailableProcesses != availableProcesses.end(); itAvailableProcesses++) {
+				unsigned int id = itAvailableProcesses->first;
+				bool processRunning = false;
+				for(itRunningProcesses=runningProcesses.begin(); itRunningProcesses != runningProcesses.end(); itRunningProcesses++) {
+					if(itRunningProcesses->first == id) {
+						std::stringstream stringStream;
+						stringStream << "running;" << id << ";";
+						server.AddToSendQueue(stringStream.str());
+						processRunning = true;
+					}
+				}
+
+				if(!processRunning) {
+					std::stringstream stringStream;
+					stringStream << "stopped;" << id << ";";
+					server.AddToSendQueue(stringStream.str());
+				}
 			}
 
 			clientConnected = true;
