@@ -6,7 +6,7 @@
 // Declare Callback Enum Functions.
 BOOL CALLBACK CloseProcessEnum(HWND hwnd, LPARAM lParam);
 
-void StartProcess(DWORD id) {
+void StartProcess(DWORD id, bool startMinimized) {
 	RunningProcessInfo runningProcessInfo;
 	runningProcessInfo.id = id;
 
@@ -17,6 +17,14 @@ void StartProcess(DWORD id) {
 	STARTUPINFO siStartupInfo;
 	memset(&siStartupInfo, 0, sizeof(siStartupInfo));
 	siStartupInfo.cb = sizeof(siStartupInfo);
+	
+	if(startMinimized) {
+		siStartupInfo.dwFlags = STARTF_USESHOWWINDOW;
+		siStartupInfo.wShowWindow = SW_SHOWMINNOACTIVE;
+	} else {
+		siStartupInfo.dwFlags = 0;
+	}
+
 	PROCESS_INFORMATION piProcessInfo;
 	memset(&piProcessInfo, 0, sizeof(piProcessInfo));
 	char* commandLine = new char[availableProcesses[id].commandLine.length()+1];

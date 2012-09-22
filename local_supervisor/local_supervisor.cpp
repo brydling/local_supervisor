@@ -115,17 +115,22 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 		while(server.HasData()) {
 			std::string message = server.Get();
 			std::vector<std::string> tokens = TokenizeLine(message, ';');
-			if(tokens[0] == "start") {
+			if(tokens[0] == "start" && tokens.size() >= 2) {
 				unsigned int id = atoi(tokens[1].c_str());
 				if(runningProcesses.count(id) == 0) {	// if id is not in the list already
-					StartProcess(id);
+					bool startMinimized = false;
+					if(tokens.size() >= 3 && tokens[2] == "minimized") {
+						startMinimized = true;
+					}
+
+					StartProcess(id, startMinimized);
 				}
-			} else if(tokens[0] == "stop") {
+			} else if(tokens[0] == "stop" && tokens.size() >= 2) {
 				unsigned int id = atoi(tokens[1].c_str());
 				if(runningProcesses.count(id) != 0) {	// if id is in the list
 					StopProcess(id);
 				}
-			} else if(tokens[0] == "kill") {
+			} else if(tokens[0] == "kill" && tokens.size() >= 2) {
 				unsigned int id = atoi(tokens[1].c_str());
 				if(runningProcesses.count(id) != 0) {	// if id is in the list
 					KillProcess(id);
