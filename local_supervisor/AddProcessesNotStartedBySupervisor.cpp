@@ -112,5 +112,5 @@ void AddProcessesNotStartedBySupervisor() {
 		}
 	}
 
-	//MessageBoxA(0, strProcesses.c_str(), "Hej", MB_OK);
+	//MessageBoxA(0, strProcesses.c_str(), "Processes", MB_OK);
 }
