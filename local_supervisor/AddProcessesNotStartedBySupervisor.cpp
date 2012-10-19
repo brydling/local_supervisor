@@ -49,7 +49,6 @@ void AddProcessesNotStartedBySupervisor() {
 	DWORD bytesreturned;
 	EnumProcesses(pids, sizeof(pids), &bytesreturned);
 	DWORD processes = bytesreturned/sizeof(DWORD);
-	std::string strProcesses;
 
 	if(!hardDiskCollectionInitialized)
 	{
@@ -81,18 +80,24 @@ void AddProcessesNotStartedBySupervisor() {
 			std::map<unsigned int, ProcessConfigFile::Process_Type>::iterator it;
 			for(it=availableProcesses.begin(); it != availableProcesses.end(); it++) {
 				if(runningProcesses.count(it->first) == 0 && it->second.commandLine == sFilePath) {
-					RunningProcessInfo runningProcessInfo;
-					runningProcessInfo.id = it->first;
-					runningProcessInfo.dwProcessId = pids[i];
-					runningProcessInfo.hProcess = hProcess;
-					runningProcesses.insert(std::pair<unsigned int, RunningProcessInfo>(runningProcessInfo.id, runningProcessInfo));
-					addedProcessToRunningList = true;
+					DWORD exitCode;
+					DWORD success = GetExitCodeProcess(hProcess, &exitCode);
+					DWORD error = GetLastError();
 
-					if(server.ClientConnected()) {
-						unsigned int id = it->first;
-						std::stringstream stringStream;
-						stringStream << "running;" << id << ";";
-						server.AddToSendQueue(stringStream.str());
+					if(exitCode == STILL_ACTIVE) {
+						RunningProcessInfo runningProcessInfo;
+						runningProcessInfo.id = it->first;
+						runningProcessInfo.dwProcessId = pids[i];
+						runningProcessInfo.hProcess = hProcess;
+						runningProcesses.insert(std::pair<unsigned int, RunningProcessInfo>(runningProcessInfo.id, runningProcessInfo));
+						addedProcessToRunningList = true;
+
+						if(server.ClientConnected()) {
+							unsigned int id = it->first;
+							std::stringstream stringStream;
+							stringStream << "running;" << id << ";";
+							server.AddToSendQueue(stringStream.str());
+						}
 					}
 
 					break;

@@ -106,6 +106,7 @@ void FindAndEraseStoppedProcesses() {
 				server.AddToSendQueue(stringStream.str());
 			}
 
+			TerminateProcess(runningProcess.hProcess, 0);
 			CloseHandle(runningProcess.hProcess);
 			process_ids_to_erase.push_back(id);
 		}
