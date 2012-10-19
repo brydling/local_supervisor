@@ -53,6 +53,7 @@ void AddProcessesNotStartedBySupervisor() {
 	if(!hardDiskCollectionInitialized)
 	{
 		InitializeHardDiskCollection(_hardDiskCollection);
+		hardDiskCollectionInitialized = true;
 	}
 
 	for(int i=0; i<processes; i++) {
