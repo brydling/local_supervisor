@@ -69,6 +69,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	// Main loop:
 	do
 	{
+		Sleep(100);
+
 		AddProcessesNotStartedBySupervisor();
 
 		int error;
@@ -206,15 +208,15 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    hInst = hInstance; // Store instance handle in our global variable
 
-   hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      100, 100, 400, 200, NULL, NULL, hInstance, NULL);
+   hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
+      100, 100, 250, 100, NULL, NULL, hInstance, NULL);
 
    if (!hWnd)
    {
       return FALSE;
    }
 
-   ShowWindow(hWnd, nCmdShow);
+   ShowWindow(hWnd, SW_SHOWMINNOACTIVE/*nCmdShow*/);
    UpdateWindow(hWnd);
 
    return TRUE;
