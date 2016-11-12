@@ -1,6 +1,6 @@
 # local_supervisor
 ## About
-This is a tool for starting and stopping processes on multiple computers from a single GUI. It was developed for a flight simulator consisting of several processes executing on several Windows computer.
+This is a tool for starting and stopping processes on multiple computers from a single GUI. It was developed for a flight simulator consisting of several processes executing on several Windows computers.
 
 This repository is for the server application written in Visual C++ and includes project files for Visual Studio Express. The GUI is in a different project called [supervisor](http://github.com/brydling/supervisor).
 ## Usage
