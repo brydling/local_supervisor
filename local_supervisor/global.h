@@ -5,13 +5,10 @@
 #include "ProcessConfigFile.h"
 #include "TCPLineServer.h"
 
-//#define DEBUG_TEXT
-
 class RunningProcessInfo {
 public:
-	unsigned int id; // id from config file
-	HANDLE hProcess;
-	DWORD dwProcessId; // process id in windows
+   HANDLE hProcess;
+   DWORD dwProcessId; // process id in windows
 };
 
 extern std::map<unsigned int, ProcessConfigFile::Process_Type> availableProcesses; // first = id from config file

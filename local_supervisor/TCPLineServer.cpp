@@ -1,246 +1,251 @@
 #include "stdafx.h"
 #include "TCPLineServer.h"
 
-TCPLineServer::TCPLineServer(unsigned int port) {
-	this->port = port;
-	state = SOCKET_NOT_CREATED;
+TCPLineServer::TCPLineServer(unsigned int port, unsigned int recvbuf_size)
+: port(port), recvBufSize(recvbuf_size) {
+   recvBuf = new char[recvBufSize];
+   state = State::SOCKET_NOT_CREATED;
 }
 
-int TCPLineServer::Update() {
-	switch(state) {
-	case SOCKET_NOT_CREATED:
-		return CreateSocket();
-		break;
+TCPLineServer::Result TCPLineServer::Update() {
+   switch(state) {
+   case State::SOCKET_NOT_CREATED:
+      return CreateSocket();
+      break;
 
-	case WAITING_FOR_CLIENT:
-		return Accept();
-		break;
+   case State::WAITING_FOR_CLIENT:
+      return Accept();
+      break;
 
-	case CLIENT_CONNECTED:
-		SendAndReceive();
-		return 0;
-		break;
-	};
+   case State::CLIENT_CONNECTED:
+      return SendAndReceive();
+      break;
+
+   default:                   // To get rid of annoying compiler warning. If this was Ada I'm
+      return Result::SUCCESS; // sure this wouldn't be needed. Ada is good. Be like Ada.
+   };
 }
 
-int TCPLineServer::CreateSocket() {
-	serverSocket=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
-	if(serverSocket==INVALID_SOCKET) {
-		return -1;
-	}
+TCPLineServer::Result TCPLineServer::CreateSocket() {
+   serverSocket=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
 
-	// If iMode!=0, non-blocking mode is enabled.
-	u_long iMode=1;
-	ioctlsocket(serverSocket,FIONBIO,&iMode);
+   if(serverSocket==INVALID_SOCKET)
+      return Result::ERROR_SOCKET_NOT_CREATED;
 
-	SOCKADDR_IN serverInf;
-	serverInf.sin_family=AF_INET;
-	serverInf.sin_addr.s_addr=INADDR_ANY;
-	serverInf.sin_port=htons(port);
+   // If iMode!=0, non-blocking mode is enabled.
+   u_long iMode=1;
+   if(ioctlsocket(serverSocket, FIONBIO, &iMode) == SOCKET_ERROR)
+      return Result::ERROR_SOCKET_NOT_CREATED;
 
-	if(bind(serverSocket,(SOCKADDR*)(&serverInf),sizeof(serverInf))==SOCKET_ERROR) {
-		return -1;
-	}
+   SOCKADDR_IN serverInf;
+   serverInf.sin_family=AF_INET;
+   serverInf.sin_addr.s_addr=INADDR_ANY;
+   serverInf.sin_port=htons(port);
 
-	if(listen(serverSocket,1)==SOCKET_ERROR) {
-		return -1;
-	}
+   if(bind(serverSocket,(SOCKADDR*)(&serverInf),sizeof(serverInf))==SOCKET_ERROR)
+      return Result::ERROR_SOCKET_NOT_CREATED;
 
-	state = WAITING_FOR_CLIENT;
-	return 0;
+   if(listen(serverSocket,1)==SOCKET_ERROR)
+      return Result::ERROR_SOCKET_NOT_CREATED;
+
+   state = State::WAITING_FOR_CLIENT;
+   return Result::SUCCESS;
 }
 
-int TCPLineServer::Accept() {
-	SOCKET tempSock;
+TCPLineServer::Result TCPLineServer::Accept() {
+   SOCKET tempSock;
 
-	tempSock=accept(serverSocket,NULL,NULL);
-	if(tempSock == INVALID_SOCKET) {
-		int error = WSAGetLastError();
+   tempSock=accept(serverSocket,NULL,NULL);
+   if(tempSock == INVALID_SOCKET) {
+      int error = WSAGetLastError();
 
-		if(error != WSAEWOULDBLOCK) {
-			return -1;		// some error occured
-		} else {
-			return 0;		// no connection pending
-		}
-	} else {
-		clientSocket = tempSock;
+      if(error != WSAEWOULDBLOCK) {
+         closesocket(serverSocket);
+         state = State::SOCKET_NOT_CREATED;
+         return Result::ERROR_ACCEPT;		// some error occured
+      } else {
+         return Result::SUCCESS;				// no connection pending
+      }
+   } else {
+      clientSocket = tempSock;
 
-		// If iMode!=0, non-blocking mode is enabled.
-		u_long iMode=1;
-		ioctlsocket(clientSocket,FIONBIO,&iMode);
+      // If iMode!=0, non-blocking mode is enabled.
+      u_long iMode=1;
+      if (ioctlsocket(clientSocket, FIONBIO, &iMode) == SOCKET_ERROR) {
+         closesocket(clientSocket);
+         return Result::ERROR_ACCEPT;
+      }
 
-		recvBufStart = 0;
-		recvBufEnd = 0;
+      // Clear the circular receive buffer
+      recvBufStart = 0;
+      recvBufEnd = 0;
 
-		closesocket(serverSocket);
+      // Clear the send and receive queues (who came up with the idea of _not_ including
+      // a clear()-function in a standard queue implementation?)
+      std::queue<std::string> emptyStringQueue;
+      std::swap(sendQueue, emptyStringQueue);
 
-		state = CLIENT_CONNECTED;
-		return 1; // connection made
-	}
+      std::queue<std::string> anotherEmptyStringQueue;
+      std::swap(recvQueue, anotherEmptyStringQueue);
+
+      closesocket(serverSocket);       // Close the listening server socket
+
+      state = State::CLIENT_CONNECTED; // Connection made
+      return Result::SUCCESS;
+   }
 }
 
-void TCPLineServer::SendAndReceive() {
-	Send();
-	Receive();
+TCPLineServer::Result TCPLineServer::SendAndReceive() {
+   Result res;
+   if ((res = Send()) != Result::SUCCESS)
+      return res;
+   
+   if ((res = Receive()) != Result::SUCCESS)
+      return res;
+
+   return Result::SUCCESS;
 }
 
-int TCPLineServer::Send() {
-	while(sendQueue.empty() == false) {
-		std::string message = sendQueue.front();
-		sendQueue.pop();
+TCPLineServer::Result TCPLineServer::Send() {
+   while (sendQueue.empty() == false) {
+      std::string message = sendQueue.front();
 
-		if(message[message.size() - 1] != '\n') {
-			message = message + '\n';
-		}
+      if (send(clientSocket, message.c_str(), message.length(), 0) == SOCKET_ERROR) {
+         int error = WSAGetLastError();
 
-		if(send(clientSocket, message.c_str(), message.length(), 0) == SOCKET_ERROR) {
-			int error = WSAGetLastError();
-
-			if(error != WSAEWOULDBLOCK) {
-				closesocket(clientSocket);
-				state = SOCKET_NOT_CREATED;
-				return 0;
-			} else {
-				return -3;
-			}
-		}
-		return 0;
-	}
-	return 0;
+         if (error != WSAEWOULDBLOCK) {	// Connection error
+            closesocket(clientSocket);
+            state = State::SOCKET_NOT_CREATED;
+            return Result::ERROR_CONNECTION_CLOSED;
+         } else {						// Try again later
+            return Result::SUCCESS;
+         }
+      } else {	// Sending succeeded!
+         sendQueue.pop(); // Remove the sent message from the queue
+      }
+   }
+   return Result::SUCCESS;
 }
 
-int TCPLineServer::Receive() {
-	// receive
-	int limit, bytesReceived, newRecvBufEnd;
+TCPLineServer::Result TCPLineServer::Receive() {
+   // receive
+   int bytesToReceive, bytesReceived, newRecvBufEnd;
 
-	if(recvBufEnd < recvBufStart) {
-		limit = recvBufStart;
-	} else {
-		limit = RECVBUF_SIZE;
-	}
+   // Circular receive buffer. recvBufEnd points to the next position
+   // that should be written (end-of-data + 1), recvBufStart points
+   // to the first position that contains data.
 
-	if((bytesReceived = recv(clientSocket, &(recvBuf[recvBufEnd]), limit - recvBufEnd, 0)) == SOCKET_ERROR) {	// receive as many bytes as is free in
-		// the recv buffer
-		int error = WSAGetLastError();
+   // How many bytes shall we receive at most (in this single recv call)?
+   if(recvBufEnd < recvBufStart) {
+      bytesToReceive = recvBufStart - recvBufEnd;		// Up until the start of data
+   } else {
+      bytesToReceive = recvBufSize - recvBufEnd;		// Up until the end of the memory buffer
+   }
 
-		if(error != WSAEWOULDBLOCK) {
-			closesocket(clientSocket);
-			state = SOCKET_NOT_CREATED;
-			return 0;
-		}
-		newRecvBufEnd = recvBufEnd;
-		return 0;
-	} else if(bytesReceived == 0) { // connection gracefully closed
-		closesocket(clientSocket);
-		state = SOCKET_NOT_CREATED;
-		return 0;
-	} else {
-		newRecvBufEnd = recvBufEnd + bytesReceived;
+   if((bytesReceived = recv(clientSocket, &(recvBuf[recvBufEnd]), bytesToReceive, 0)) == SOCKET_ERROR) {	// receive as many bytes as there is consecutive free memory
+      int error = WSAGetLastError();
 
-		if(newRecvBufEnd == RECVBUF_SIZE) {
-			newRecvBufEnd = 0;
-		}
+      if(error != WSAEWOULDBLOCK) {	// Undefined error
+         closesocket(clientSocket);
+         state = State::SOCKET_NOT_CREATED;
+         return Result::ERROR_CONNECTION_CLOSED;
+      } else {
+         return Result::SUCCESS;		// Nothing received, try again next time
+      }
+   } else if(bytesReceived == 0) { // Connection gracefully closed
+      closesocket(clientSocket);
+      state = State::SOCKET_NOT_CREATED;
+      return Result::SUCCESS;
+   } else {	// Data received
+      newRecvBufEnd = recvBufEnd + bytesReceived;		// "Pointer" to the new end of data
 
-		if(newRecvBufEnd == 0 && recvBufStart > 0) {	// we have reached the end of the allocated memory but
-			// there may still be free space at the beginning
+      if(newRecvBufEnd == recvBufSize) {	// If we have reached the end of the memory buffer,
+         newRecvBufEnd = 0;				// wrap around
+      }
 
-			if((bytesReceived = recv(clientSocket, &(recvBuf[0]), recvBufStart, 0)) == SOCKET_ERROR) {	// receive more if possible
-				int error = WSAGetLastError();
+      // Start searching through the newly received data for an end-of-message-delimiter (\n)
+      bool messageReceived = false;
 
-				if(error != WSAEWOULDBLOCK) {
-					closesocket(clientSocket);
-					state = SOCKET_NOT_CREATED;
-					return 0;
-				}
-				newRecvBufEnd = 0;
-			} else if(bytesReceived == 0) { // connection gracefully closed
-				closesocket(clientSocket);
-				state = SOCKET_NOT_CREATED;
-				return 0;
-			} else {
-				newRecvBufEnd = 0 + bytesReceived;
-			}
-		}
+      while(recvBufEnd != newRecvBufEnd) {
+         while(recvBuf[recvBufEnd] != '\n' && recvBufEnd != newRecvBufEnd) {
+            recvBufEnd++;
 
-		bool messageReceived = false;
+            if(recvBufEnd == recvBufSize) {
+               recvBufEnd = 0;
+            }
+         }
 
-		while(recvBufEnd != newRecvBufEnd) {
-			while(recvBuf[recvBufEnd] != '\n' && recvBufEnd != newRecvBufEnd) {
-				recvBufEnd++;
+         if(recvBufEnd != newRecvBufEnd) {	// Complete message found
+            messageReceived = true;
 
-				if(recvBufEnd == RECVBUF_SIZE) {
-					recvBufEnd = 0;
-				}
-			}
+            if(recvBufEnd >= recvBufStart) {
+               char *command = new char[recvBufEnd - recvBufStart + 2];
+               strncpy(command, &(recvBuf[recvBufStart]), recvBufEnd - recvBufStart + 1);
+               command[recvBufEnd - recvBufStart + 1] = 0;
 
-			if(recvBufEnd != newRecvBufEnd) {
-				messageReceived = true;
+               std::string cmd = command;
+               recvQueue.push(cmd);
 
-				if(recvBufEnd < RECVBUF_SIZE - 1 && recvBufEnd != newRecvBufEnd - 1 && recvBuf[recvBufEnd+1] == '\n') {
-					recvBufEnd++;
-				} else if(recvBufEnd == RECVBUF_SIZE - 1 && newRecvBufEnd > 0 && recvBuf[0] == '\n') {
-					recvBufEnd = 0;
-				}
+               if(recvBufEnd != recvBufSize - 1) {
+                  recvBufEnd++;
+               } else {
+                  recvBufEnd = 0;
+               }
 
-				if(recvBufEnd >= recvBufStart) {
-					char *command = new char[recvBufEnd - recvBufStart + 2];
-					strncpy(command, &(recvBuf[recvBufStart]), recvBufEnd - recvBufStart + 1);
-					command[recvBufEnd - recvBufStart + 1] = 0;
+               recvBufStart = recvBufEnd;
+            } else if(recvBufEnd < recvBufStart) {
+               char *command = new char[recvBufSize - recvBufStart + recvBufEnd + 2];
+               strncpy(command, &(recvBuf[recvBufStart]), recvBufSize - recvBufStart);
+               strncpy((command + recvBufSize - recvBufStart), recvBuf, recvBufEnd + 1);
+               command[recvBufSize - recvBufStart + recvBufEnd + 1] = 0;
 
-					std::string cmd = command;
-					recvQueue.push(cmd);
+               std::string cmd = command;
+               recvQueue.push(cmd);
 
-					if(recvBufEnd != RECVBUF_SIZE - 1) {
-						recvBufEnd++;
-					} else {
-						recvBufEnd = 0;
-					}
+               recvBufEnd++;
+               recvBufStart = recvBufEnd;
+            }
+         }
+      }
 
-					recvBufStart = recvBufEnd;
-				} else if(recvBufEnd < recvBufStart) {
-					char *command = new char[RECVBUF_SIZE - recvBufStart + recvBufEnd + 2];
-					strncpy(command, &(recvBuf[recvBufStart]), RECVBUF_SIZE - recvBufStart);
-					strncpy((command + RECVBUF_SIZE - recvBufStart), recvBuf, recvBufEnd + 1);
-					command[RECVBUF_SIZE - recvBufStart + recvBufEnd + 1] = 0;
+      // If newRecvBufEnd is now equal to recvBufStart it means that the buffer is either full or empty.
+      // If it is empty now that we have received data, messageReceived will be true, so if messageReceived
+      // is false it means that the buffer is full and that there are no '\n' in the data currently in the
+      // buffer. Return an error saying that we are receiving a message that is larger than the receive buffer.
+      if(newRecvBufEnd == recvBufStart && !messageReceived) {
+         return Result::ERROR_OVERRUN;
+      }
 
-					std::string cmd = command;
-					recvQueue.push(cmd);
-
-					recvBufEnd++;
-					recvBufStart = recvBufEnd;
-				}
-			}
-		}
-
-		if(newRecvBufEnd == recvBufStart && !messageReceived) {
-			return -2;
-		}
-
-		return 0;
-	}
+      return Result::SUCCESS;
+   }
 }
 
 bool TCPLineServer::HasData() {
-	if(recvQueue.size() > 0) {
-		return true;
-	} else {
-		return false;
-	}
+   if(recvQueue.size() > 0) {
+      return true;
+   } else {
+      return false;
+   }
 }
 
 std::string TCPLineServer::Get() {
-	std::string message = recvQueue.front();
-	recvQueue.pop();
-	return message;
+   std::string message = recvQueue.front();
+   recvQueue.pop();
+   return message;
 }
 
 void TCPLineServer::AddToSendQueue(std::string message) {
-	sendQueue.push(message);
+   // Since this is a Line-server, we want to make sure every message ends with a newline
+   if (message[message.size() - 1] != '\n') {
+      message = message + '\n';
+   }
+
+   sendQueue.push(message);
 }
 
 bool TCPLineServer::ClientConnected() {
-	if(state == CLIENT_CONNECTED)
-		return true;
-	else
-		return false;
+   if(state == State::CLIENT_CONNECTED)
+      return true;
+   else
+      return false;
 }

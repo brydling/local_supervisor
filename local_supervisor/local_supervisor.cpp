@@ -5,7 +5,7 @@
 #include "local_supervisor.h"
 #include <string>
 #include <sstream>
-#include "TokenizeLine.h"
+#include "TokenizeString.h"
 #include <cctype>
 #include "AddProcessesNotStartedBySupervisor.h"
 #include "ProcessFunctions.h"
@@ -30,130 +30,140 @@ INT_PTR CALLBACK	About(HWND, UINT, WPARAM, LPARAM);
 int APIENTRY _tWinMain(HINSTANCE hInstance,
                      HINSTANCE hPrevInstance,
                      LPTSTR    lpCmdLine,
-                     int       nCmdShow)
-{
-	UNREFERENCED_PARAMETER(hPrevInstance);
-	UNREFERENCED_PARAMETER(lpCmdLine);
+                     int       nCmdShow) {
+   UNREFERENCED_PARAMETER(hPrevInstance);
+   UNREFERENCED_PARAMETER(lpCmdLine);
 
-	ProcessConfigFile configFile("processes.cfg");
-	bool clientConnected = false;
+   ProcessConfigFile configFile("processes.cfg");
+   bool clientConnected = false;
 
-	configFile.ReadProcesses(&availableProcesses);
+   configFile.ReadProcesses(&availableProcesses);
 
-	MSG msg;
-	HACCEL hAccelTable;
+   MSG msg;
+   HACCEL hAccelTable;
 
-	ZeroMemory(&msg, sizeof(msg));
+   ZeroMemory(&msg, sizeof(msg));
 
-	// Initialize global strings
-	LoadString(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
-	LoadString(hInstance, IDC_LOCAL_SUPERVISOR, szWindowClass, MAX_LOADSTRING);
-	MyRegisterClass(hInstance);
+   // Initialize global strings
+   LoadString(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
+   LoadString(hInstance, IDC_LOCAL_SUPERVISOR, szWindowClass, MAX_LOADSTRING);
+   MyRegisterClass(hInstance);
 
-	// Perform application initialization:
-	if (!InitInstance (hInstance, nCmdShow))
-	{
-		return FALSE;
-	}
+   // Perform application initialization:
+   if (!InitInstance (hInstance, nCmdShow)) {
+      return FALSE;
+   }
 
-	hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_LOCAL_SUPERVISOR));
+   hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_LOCAL_SUPERVISOR));
 
-	WSADATA WsaDat;
-	if(WSAStartup(MAKEWORD(2,2),&WsaDat)!=0)
-	{
-		MessageBox(NULL, TEXT("Error!"), TEXT("WSA Initialization failed!"), MB_OK);
-		WSACleanup();
-		exit(1);
-	}
+   WSADATA WsaDat;
+   if(WSAStartup(MAKEWORD(2,2),&WsaDat)!=0) {
+      MessageBox(NULL, TEXT("Error!"), TEXT("WSA Initialization failed!"), MB_OK);
+      WSACleanup();
+      exit(1);
+   }
 
-	// Main loop:
-	do
-	{
-		Sleep(100);
+   // Main loop:
+   do {
+      Sleep(100);
 
-		AddProcessesNotStartedBySupervisor();
+      // Check to see if any of our processes are started outside of this program
+      AddProcessesNotStartedBySupervisor();
 
-		int error;
+      TCPLineServer::Result result;
 
-		if((error = server.Update()) != 0) {
-			if(error == -1) {
-				MessageBox(NULL, TEXT("Error in TCPLineServer::Update()!"), TEXT("Error!"), MB_OK);
-			} else if(error == -2) {
-				MessageBox(NULL, TEXT("Message corrupted due to buffer overrun!"), TEXT("Warning!"), MB_OK);
-			} else if(error == -3) {
-				MessageBox(NULL, TEXT("What happened now?"), TEXT("Warning!"), MB_OK);
-			}
-		}
+      // Update our server object (check for incoming connections or send/receive data)
+      if((result = server.Update()) != TCPLineServer::Result::SUCCESS) {
+         switch(result) {
+         case TCPLineServer::Result::ERROR_ACCEPT:
+            MessageBox(NULL, TEXT("Error accepting incoming connection."), TEXT("Error!"), MB_OK);
+            break;
+         case TCPLineServer::Result::ERROR_CONNECTION_CLOSED:
+            MessageBox(NULL, TEXT("Connection error."), TEXT("Error!"), MB_OK);
+            break;
+         case TCPLineServer::Result::ERROR_OVERRUN:
+            MessageBox(NULL, TEXT("Incoming message lost because it was longer than the receive buffer"), TEXT("Warning!"), MB_OK);
+            break;
+         case TCPLineServer::Result::ERROR_SOCKET_NOT_CREATED:
+            MessageBox(NULL, TEXT("Error creating socket."), TEXT("Error!"), MB_OK);
+            break;
+         }
+      }
 
-		if(clientConnected == false && server.ClientConnected() == true) {
-			std::map<unsigned int, RunningProcessInfo>::iterator itRunningProcesses;
-			std::map<unsigned int, ProcessConfigFile::Process_Type>::iterator itAvailableProcesses;
-			for(itAvailableProcesses=availableProcesses.begin(); itAvailableProcesses != availableProcesses.end(); itAvailableProcesses++) {
-				unsigned int id = itAvailableProcesses->first;
-				bool processRunning = false;
-				for(itRunningProcesses=runningProcesses.begin(); itRunningProcesses != runningProcesses.end(); itRunningProcesses++) {
-					if(itRunningProcesses->first == id) {
-						std::stringstream stringStream;
-						stringStream << "running;" << id << ";";
-						server.AddToSendQueue(stringStream.str());
-						processRunning = true;
-					}
-				}
+      if(clientConnected == false && server.ClientConnected() == true) {
+         std::map<unsigned int, RunningProcessInfo>::iterator itRunningProcesses;
+         std::map<unsigned int, ProcessConfigFile::Process_Type>::iterator itAvailableProcesses;
+         for(itAvailableProcesses=availableProcesses.begin(); itAvailableProcesses != availableProcesses.end(); itAvailableProcesses++) {
+            unsigned int id = itAvailableProcesses->first;
+            bool processRunning = false;
+            for(itRunningProcesses=runningProcesses.begin(); itRunningProcesses != runningProcesses.end(); itRunningProcesses++) {
+               if(itRunningProcesses->first == id) {
+                  std::stringstream stringStream;
+                  stringStream << "running;" << id << ";";
+                  server.AddToSendQueue(stringStream.str());
+                  processRunning = true;
+               }
+            }
 
-				if(!processRunning) {
-					std::stringstream stringStream;
-					stringStream << "stopped;" << id << ";";
-					server.AddToSendQueue(stringStream.str());
-				}
-			}
+            if(!processRunning) {
+               std::stringstream stringStream;
+               stringStream << "stopped;" << id << ";";
+               server.AddToSendQueue(stringStream.str());
+            }
+         }
 
-			clientConnected = true;
-		} else if(clientConnected == true && server.ClientConnected() == false) {
-			clientConnected = false;
-		}
+         clientConnected = true;
+      } else if(clientConnected == true && server.ClientConnected() == false) {
+         clientConnected = false;
+      }
 
-		FindAndEraseStoppedProcesses();
+      FindAndEraseStoppedProcesses();
 
-		while(server.HasData()) {
-			std::string message = server.Get();
-			std::vector<std::string> tokens = TokenizeLine(message, ';');
-			if(tokens[0] == "start" && tokens.size() >= 2) {
-				unsigned int id = atoi(tokens[1].c_str());
-				if(runningProcesses.count(id) == 0) {	// if id is not in the list already
-					bool startMinimized = false;
-					if(tokens.size() >= 3 && tokens[2] == "minimized") {
-						startMinimized = true;
-					}
+      while(server.HasData()) {
+         std::string message = server.Get();
+         std::vector<std::string> tokens = TokenizeString(message, ';');
+         if (tokens.size() > 0) {
+            if (tokens[0] == "start" && tokens.size() >= 2) {
+               unsigned int id = atoi(tokens[1].c_str());
+               if (runningProcesses.count(id) == 0) {	// if id is not in the list already
+                  bool startMinimized = false;
+                  if (tokens.size() >= 3 && tokens[2] == "minimized") {
+                     startMinimized = true;
+                  }
 
-					StartProcess(id, startMinimized);
-				}
-			} else if(tokens[0] == "stop" && tokens.size() >= 2) {
-				unsigned int id = atoi(tokens[1].c_str());
-				if(runningProcesses.count(id) != 0) {	// if id is in the list
-					StopProcess(id);
-				}
-			} else if(tokens[0] == "kill" && tokens.size() >= 2) {
-				unsigned int id = atoi(tokens[1].c_str());
-				if(runningProcesses.count(id) != 0) {	// if id is in the list
-					KillProcess(id);
-				}
-			}
-		}
+                  StartProcess(id, startMinimized);
+               }
+            }
+            else if (tokens[0] == "stop" && tokens.size() >= 2) {
+               unsigned int id = atoi(tokens[1].c_str());
+               if (runningProcesses.count(id) != 0) {	// if id is in the list
+                  StopProcess(id);
+               }
+            }
+            else if (tokens[0] == "kill" && tokens.size() >= 2) {
+               unsigned int id = atoi(tokens[1].c_str());
+               if (runningProcesses.count(id) != 0) {	// if id is in the list
+                  KillProcess(id);
+               }
+            }
+         }
+      }
 
-		while (PeekMessage (&msg, NULL, 0, 0, PM_REMOVE) > 0)
-		{
-			if (!TranslateAccelerator( 
-					msg.hwnd,  // handle to receiving window 
-                    hAccelTable,    // handle to active accelerator table 
-                    &msg))         // message data 
-            {
+      while (PeekMessage (&msg, NULL, 0, 0, PM_REMOVE) > 0) {
+         if (!TranslateAccelerator(	msg.hwnd,		// handle to receiving window 
+                              hAccelTable,    // handle to active accelerator table 
+                              &msg)) {        // message data 
+
                 TranslateMessage(&msg);
                 DispatchMessage(&msg);
             }
-		}
-	} while (WM_QUIT != msg.message);
 
-	return (int) msg.wParam;
+         if (msg.message == WM_QUIT)
+            break;
+      }
+   } while (WM_QUIT != msg.message);
+
+   return (int) msg.wParam;
 }
 
 
@@ -173,23 +183,23 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 //
 ATOM MyRegisterClass(HINSTANCE hInstance)
 {
-	WNDCLASSEX wcex;
+   WNDCLASSEX wcex;
 
-	wcex.cbSize = sizeof(WNDCLASSEX);
+   wcex.cbSize = sizeof(WNDCLASSEX);
 
-	wcex.style			= CS_HREDRAW | CS_VREDRAW;
-	wcex.lpfnWndProc	= WndProc;
-	wcex.cbClsExtra		= 0;
-	wcex.cbWndExtra		= 0;
-	wcex.hInstance		= hInstance;
-	wcex.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_LOCAL_SUPERVISOR));
-	wcex.hCursor		= LoadCursor(NULL, IDC_ARROW);
-	wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
-	wcex.lpszMenuName	= MAKEINTRESOURCE(IDC_LOCAL_SUPERVISOR);
-	wcex.lpszClassName	= szWindowClass;
-	wcex.hIconSm		= LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+   wcex.style			= CS_HREDRAW | CS_VREDRAW;
+   wcex.lpfnWndProc	= WndProc;
+   wcex.cbClsExtra		= 0;
+   wcex.cbWndExtra		= 0;
+   wcex.hInstance		= hInstance;
+   wcex.hIcon			= LoadIcon(hInstance, MAKEINTRESOURCE(IDI_LOCAL_SUPERVISOR));
+   wcex.hCursor		= LoadCursor(NULL, IDC_ARROW);
+   wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
+   wcex.lpszMenuName	= MAKEINTRESOURCE(IDC_LOCAL_SUPERVISOR);
+   wcex.lpszClassName	= szWindowClass;
+   wcex.hIconSm		= LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
-	return RegisterClassEx(&wcex);
+   return RegisterClassEx(&wcex);
 }
 
 //
@@ -234,58 +244,58 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	int wmId, wmEvent;
-	PAINTSTRUCT ps;
-	HDC hdc;
+   int wmId, wmEvent;
+   PAINTSTRUCT ps;
+   HDC hdc;
 
-	switch (message)
-	{
-	case WM_COMMAND:
-		wmId    = LOWORD(wParam);
-		wmEvent = HIWORD(wParam);
-		// Parse the menu selections:
-		switch (wmId)
-		{
-		case IDM_ABOUT:
-			DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-			break;
-		case IDM_EXIT:
-			DestroyWindow(hWnd);
-			break;
-		default:
-			return DefWindowProc(hWnd, message, wParam, lParam);
-		}
-		break;
-	case WM_PAINT:
-		hdc = BeginPaint(hWnd, &ps);
-		// TODO: Add any drawing code here...
-		EndPaint(hWnd, &ps);
-		break;
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		break;
-	default:
-		return DefWindowProc(hWnd, message, wParam, lParam);
-	}
-	return 0;
+   switch (message)
+   {
+   case WM_COMMAND:
+      wmId    = LOWORD(wParam);
+      wmEvent = HIWORD(wParam);
+      // Parse the menu selections:
+      switch (wmId)
+      {
+      case IDM_ABOUT:
+         DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+         break;
+      case IDM_EXIT:
+         DestroyWindow(hWnd);
+         break;
+      default:
+         return DefWindowProc(hWnd, message, wParam, lParam);
+      }
+      break;
+   case WM_PAINT:
+      hdc = BeginPaint(hWnd, &ps);
+      // TODO: Add any drawing code here...
+      EndPaint(hWnd, &ps);
+      break;
+   case WM_DESTROY:
+      PostQuitMessage(0);
+      break;
+   default:
+      return DefWindowProc(hWnd, message, wParam, lParam);
+   }
+   return 0;
 }
 
 // Message handler for about box.
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	UNREFERENCED_PARAMETER(lParam);
-	switch (message)
-	{
-	case WM_INITDIALOG:
-		return (INT_PTR)TRUE;
+   UNREFERENCED_PARAMETER(lParam);
+   switch (message)
+   {
+   case WM_INITDIALOG:
+      return (INT_PTR)TRUE;
 
-	case WM_COMMAND:
-		if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
-		{
-			EndDialog(hDlg, LOWORD(wParam));
-			return (INT_PTR)TRUE;
-		}
-		break;
-	}
-	return (INT_PTR)FALSE;
+   case WM_COMMAND:
+      if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
+      {
+         EndDialog(hDlg, LOWORD(wParam));
+         return (INT_PTR)TRUE;
+      }
+      break;
+   }
+   return (INT_PTR)FALSE;
 }
