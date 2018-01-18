@@ -7,6 +7,10 @@ TCPLineServer::TCPLineServer(unsigned int port, unsigned int recvbuf_size)
    state = State::SOCKET_NOT_CREATED;
 }
 
+TCPLineServer::~TCPLineServer() {
+   delete [] recvBuf;
+}
+
 TCPLineServer::Result TCPLineServer::Update() {
    switch(state) {
    case State::SOCKET_NOT_CREATED:

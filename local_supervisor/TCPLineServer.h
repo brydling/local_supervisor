@@ -24,7 +24,7 @@ class TCPLineServer {
 public:
    enum class Result { SUCCESS, ERROR_SOCKET_NOT_CREATED, ERROR_ACCEPT, ERROR_CONNECTION_CLOSED, ERROR_OVERRUN };
 
-   /* Contructor
+   /* Constructor
       ARGS:
          port (in):
             The TCP port number to which the server shall listen for incoming connections
@@ -33,6 +33,10 @@ public:
             longest message that the client can send, including newline character.
    */
    TCPLineServer(unsigned int port, unsigned int recvbuf_size = 128);
+
+   /* Destructor
+   */
+   ~TCPLineServer();
 
    /* Needs to be called periodically. Handles sending and receiving of data and accepting
       incoming connections.
